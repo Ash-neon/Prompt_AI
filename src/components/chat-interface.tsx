@@ -87,10 +87,44 @@ export default function ChatInterface() {
           const newPromptsUsed = promptsUsed + 1;
           setPromptsUsed(newPromptsUsed);
 
-          await supabase
+          // Get current user data
+          const { data: userData } = await supabase
             .from("users")
-            .update({ prompts_used: newPromptsUsed })
-            .eq("id", user.id);
+            .select("prompts_used, daily_prompts_used, last_prompt_date")
+            .eq("id", user.id)
+            .single();
+
+          if (userData) {
+            const today = new Date().toISOString().split("T")[0];
+            const lastPromptDate =
+              userData.last_prompt_date?.split("T")[0] || today;
+
+            let dailyPromptsUsed = userData.daily_prompts_used || 0;
+            if (lastPromptDate !== today) {
+              // It's a new day, reset the counter
+              dailyPromptsUsed = 0;
+            }
+
+            // Update both total and daily counts
+            await supabase
+              .from("users")
+              .update({
+                prompts_used: (userData.prompts_used || 0) + 1,
+                daily_prompts_used: dailyPromptsUsed + 1,
+                last_prompt_date: today,
+              })
+              .eq("id", user.id);
+
+            // Save the prompt to history
+            await supabase.from("saved_prompts").insert({
+              user_id: user.id,
+              prompt: userMessage,
+              title:
+                userMessage.substring(0, 50) +
+                (userMessage.length > 50 ? "..." : ""),
+              created_at: new Date().toISOString(),
+            });
+          }
         }
 
         // Call Together AI API
@@ -105,6 +139,11 @@ export default function ChatInterface() {
             body: JSON.stringify({
               model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
               messages: [
+                {
+                  role: "system",
+                  content:
+                    "You are an expert-level prompt engineer tasked with transforming raw, vague, or incomplete user inputs into high-quality, effective prompts optimized for large language models.Your goal is to preserve the user's original intent while enhancing the prompt for clarity, precision, structure, and model interpretability. You must rewrite the prompt using advanced prompting strategies that improve outcomes across all domains (e.g., writing, coding, analysis, research, business, creative tasks).The enhanced prompt must follow this structure:1. **Instruction** – Clearly state the task or action the AI should perform (e.g., summarize, explain, generate code, write an email).2. **Context** – Provide relevant background, data, or the problem it operates on.3. **Role** – Optionally specify who the AI should act as (e.g., a software engineer, writing tutor, legal advisor).4. **Tone** – Indicate the desired tone or sentiment (e.g., formal, friendly, instructional, concise).5. **Output Format** – Define how the response should be structured (e.g., paragraph, bullet list, code block).6. **Constraints** – Include any additional requirements (e.g., length, audience, edge cases, style guides).Guidelines:- Maintain the original intent of the user.- Fill in any missing but implied elements to make the prompt complete.- Do not fabricate unrelated content.- Use clear, professional, and model-friendly phrasing.- Do not return explanations or markdown—only the final rewritten prompt as a plain string.Example1:User input: 'make this sound better'  → Enhanced: 'Rewrite the following message to sound more professional and polished.  **Role**: Email assistant **Tone**: Formal  **Content**: 'I finished the report. Let me know if you need anything else.Example2: User input: 'fix this code'→ Enhanced: 'Act as an experienced Python developer. Debug the following code, provide a corrected version in a code block, and explain the fix briefly. **Tone**: Educational and clear  **Constraints**: Ensure the code handles edge cases like empty inputs.  ```python  for i in range(5)print(i)  ```' Example3: User input: 'build an app to manage tasks' → Enhanced: 'You are a senior backend engineer. Design a task management backend application using a RESTful API architecture in Python.  **Context**: The API should support CRUD operations on tasks. Use in-memory data structures for storage.**Tone**: Clear and instructional  **Output Format**: Return the full implementation in a single Python script with clear code sections (e.g., # Routes, # Controllers).  **Constraints**: Include inline comments, docstrings, and test examples. Handle edge cases like invalid IDs and empty task lists. End with a suggestion on how the app could scale using a framework like Flask or FastAPI.'' ***Mandatory Output Requirement:  Respond only with the final rewritten prompt as a single plain-text sentence or paragraph. Do not include section labels (Instruction, Context, Role, etc.), markdown formatting, or code blocks. Only return the complete, enhanced prompt — nothing else.",
+                },
                 ...messages.map((msg) => ({
                   role: msg.role,
                   content: msg.content,
@@ -220,11 +259,67 @@ export default function ChatInterface() {
 
       {showEnhancer && (
         <div className="border-t p-4 bg-gray-50">
-          <PromptEnhancer
-            originalPrompt={input}
-            onApply={applyEnhancedPrompt}
-            onCancel={() => setShowEnhancer(false)}
-          />
+          <div className="flex">
+            <div className="flex-1 bg-white p-4 rounded-lg border shadow-sm">
+              <PromptEnhancer
+                originalPrompt={input}
+                onApply={applyEnhancedPrompt}
+                onCancel={() => setShowEnhancer(false)}
+              />
+            </div>
+            <div className="w-64 ml-4 bg-white p-4 rounded-lg border shadow-sm">
+              <div className="text-sm font-medium mb-3">Global Settings</div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-medium block mb-1">
+                    Output Format
+                  </label>
+                  <select className="w-full text-xs p-1 border rounded">
+                    <option>Paragraph</option>
+                    <option>Bullet Points</option>
+                    <option>Numbered List</option>
+                    <option>Table</option>
+                    <option>Code Block</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium block mb-1">
+                    Audience Level
+                  </label>
+                  <select className="w-full text-xs p-1 border rounded">
+                    <option>General</option>
+                    <option>Beginner</option>
+                    <option>Intermediate</option>
+                    <option>Expert</option>
+                    <option>Child (5th Grade)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium block mb-1">
+                    Response Length
+                  </label>
+                  <select className="w-full text-xs p-1 border rounded">
+                    <option>Default</option>
+                    <option>Short (100 words)</option>
+                    <option>Medium (300 words)</option>
+                    <option>Long (500+ words)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="flex items-center text-xs font-medium">
+                    <input type="checkbox" className="mr-2" />
+                    Include examples
+                  </label>
+                </div>
+                <div>
+                  <label className="flex items-center text-xs font-medium">
+                    <input type="checkbox" className="mr-2" />
+                    Include pros and cons
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

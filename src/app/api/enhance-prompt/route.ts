@@ -83,7 +83,11 @@ export async function POST(request: NextRequest) {
     // Update user's prompt count
     const { error: updateError } = await supabase
       .from("users")
-      .update({ prompts_used: userData.prompts_used + 1 })
+      .update({
+        prompts_used: userData.prompts_used + 1,
+        daily_prompts_used: dailyPromptsUsed + 1,
+        last_prompt_date: today,
+      })
       .eq("id", user.id);
 
     if (updateError) {
@@ -91,6 +95,19 @@ export async function POST(request: NextRequest) {
         { error: "Failed to update prompt count" },
         { status: 500 },
       );
+    }
+
+    // Save the prompt to the user's history
+    try {
+      await supabase.from("saved_prompts").insert({
+        user_id: user.id,
+        prompt: prompt,
+        enhanced_prompt: enhancedPrompt,
+        title: prompt.substring(0, 50) + (prompt.length > 50 ? "..." : ""),
+        created_at: new Date().toISOString(),
+      });
+    } catch (error) {
+      // Continue even if saving fails
     }
 
     return NextResponse.json({ enhancedPrompt });

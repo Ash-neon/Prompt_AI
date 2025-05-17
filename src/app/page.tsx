@@ -50,7 +50,10 @@ export default async function Home() {
                 best practices in prompt engineering.
               </p>
 
-              <div className="space-y-4">
+              <div
+                className="space-y-4 animate-fadeIn"
+                style={{ animationDelay: "0.7s" }}
+              >
                 {[
                   {
                     icon: <Sparkles className="w-5 h-5" />,

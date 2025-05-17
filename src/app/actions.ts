@@ -7,7 +7,9 @@ import { createClient } from "../../supabase/server";
 export const signUpAction = async (formData: FormData) => {
   const email = formData.get("email")?.toString();
   const password = formData.get("password")?.toString();
-  const fullName = formData.get("full_name")?.toString() || '';
+  const fullName = formData.get("full_name")?.toString() || "";
+  const subscriptionPlan =
+    formData.get("subscription_plan")?.toString() || "free";
   const supabase = await createClient();
 
   if (!email || !password) {
@@ -18,14 +20,17 @@ export const signUpAction = async (formData: FormData) => {
     );
   }
 
-  const { data: { user }, error } = await supabase.auth.signUp({
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.signUp({
     email,
     password,
     options: {
       data: {
         full_name: fullName,
         email: email,
-      }
+      },
     },
   });
 
@@ -35,17 +40,36 @@ export const signUpAction = async (formData: FormData) => {
 
   if (user) {
     try {
+      // Set prompt limits based on subscription plan
+      let promptsLimit = 15; // Default for free plan
 
-      const { error: updateError } = await supabase
-        .from('users')
-        .insert({
-          id: user.id,
-          user_id: user.id,
-          name: fullName,
-          email: email,
-          token_identifier: user.id,
-          created_at: new Date().toISOString()
-        });
+      switch (subscriptionPlan) {
+        case "basic":
+          promptsLimit = 50;
+          break;
+        case "standard":
+          promptsLimit = 30;
+          break;
+        case "professional":
+          promptsLimit = 150;
+          break;
+        default:
+          promptsLimit = 15; // Free plan
+      }
+
+      const { error: updateError } = await supabase.from("users").insert({
+        id: user.id,
+        user_id: user.id,
+        name: fullName,
+        email: email,
+        token_identifier: user.id,
+        created_at: new Date().toISOString(),
+        subscription_plan: subscriptionPlan,
+        prompts_limit: promptsLimit,
+        prompts_used: 0,
+        daily_prompts_used: 0,
+        last_prompt_date: new Date().toISOString().split("T")[0],
+      });
 
       if (updateError) {
         // Error handling without console.error
@@ -54,6 +78,11 @@ export const signUpAction = async (formData: FormData) => {
           "/sign-up",
           "Error updating user. Please try again.",
         );
+      }
+
+      // If user selected a paid plan, redirect to pricing page for payment
+      if (subscriptionPlan !== "free") {
+        return redirect("/pricing?plan=" + subscriptionPlan);
       }
     } catch (err) {
       // Error handling without console.error
@@ -166,10 +195,10 @@ export const checkUserSubscription = async (userId: string) => {
   const supabase = await createClient();
 
   const { data: subscription, error } = await supabase
-    .from('subscriptions')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('status', 'active')
+    .from("subscriptions")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("status", "active")
     .single();
 
   if (error) {
